@@ -106,13 +106,13 @@ def predict_stock(stock_request: StockRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/search-company")
-def search_company(search_request: CompanySearchRequest):
+@app.get("/search-company")
+def search_company(query: str):
     """
     Search for company information using a search query
     
     Args:
-        search_request: Search query for company names or symbols
+        query: Search term to look for company names or symbols
         
     Returns:
         List of matching companies with their symbols and names
@@ -121,7 +121,7 @@ def search_company(search_request: CompanySearchRequest):
         url = 'https://www.alphavantage.co/query'
         params = {
             'function': 'SYMBOL_SEARCH',
-            'keywords': search_request.query,
+            'keywords': query,
             'apikey': os.getenv('ALPHA_VANTAGE_API_KEY')
         }
         

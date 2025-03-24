@@ -198,44 +198,41 @@ class StockGUI:
         self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=5, pady=5)
         
     def search_companies(self):
-        query = self.search_var.get()
+        """
+        Search for companies based on the search query
+        """
+        query = self.search_var.get().strip()
         if not query:
-            messagebox.showwarning("Warning", "Please enter a search term")
             return
             
-        # Show loading indicator
-        self.loading_label.pack(pady=5)
-        self.root.update_idletasks()
-        
         try:
-            url = f"{self.base_url}/search-company?query={query}"
-            response = requests.get(url)
-            response.raise_for_status()  # Raise an exception for HTTP errors
+            self.loading_label.pack(pady=5)
+            self.root.update()
+            
+            # Make GET request to search endpoint
+            response = requests.get(f"{self.base_url}/search-company?query={query}")
+            response.raise_for_status()
             results = response.json()
             
-            # Clear existing items
+            # Clear existing results
             for item in self.results_tree.get_children():
                 self.results_tree.delete(item)
             
-            # Insert new items
-            if results:
-                for company in results:
-                    self.results_tree.insert("", "end", values=(
-                        company['symbol'],
-                        company['name'],
-                        company['type'],
-                        company['region'],
-                        company['matchScore']
-                    ))
-            else:
-                messagebox.showinfo("No Results", "No companies found matching your search")
+            # Add new results
+            for company in results:
+                self.results_tree.insert("", "end", values=(
+                    company['symbol'],
+                    company['name'],
+                    company['type'],
+                    company['region'],
+                    company['matchScore']
+                ))
             
-        except requests.exceptions.HTTPError as http_err:
-            messagebox.showerror("Error", f"HTTP error occurred: {http_err}")
+            self.loading_label.pack_forget()
+            
         except Exception as e:
+            self.loading_label.pack_forget()
             messagebox.showerror("Error", f"Failed to search companies: {str(e)}")
-        finally:
-            self.loading_label.pack_forget()  # Hide loading indicator
             
     def on_company_select(self, event):
         selected_item = self.results_tree.selection()
@@ -252,8 +249,8 @@ class StockGUI:
         
         # Fetch current price and trend
         try:
-            url = f"{self.base_url}/predict-stock"
-            response = requests.post(url, json={"symbol": symbol})
+            # Make GET request to predict endpoint
+            response = requests.get(f"{self.base_url}/predict-stock?symbol={symbol}")
             response.raise_for_status()
             result = response.json()
             
@@ -276,8 +273,8 @@ class StockGUI:
         symbol = item['values'][0]
         
         try:
-            url = f"{self.base_url}/predict-stock"
-            response = requests.post(url, json={"symbol": symbol})
+            # Make GET request to predict endpoint
+            response = requests.get(f"{self.base_url}/predict-stock?symbol={symbol}")
             response.raise_for_status()
             result = response.json()
             
@@ -297,8 +294,7 @@ class StockGUI:
     def update_chart(self, symbol):
         try:
             # Fetch historical data
-            url = f"{self.base_url}/predict-stock"
-            response = requests.post(url, json={"symbol": symbol})
+            response = requests.get(f"{self.base_url}/predict-stock?symbol={symbol}")
             response.raise_for_status()
             result = response.json()
             
@@ -354,8 +350,7 @@ class StockGUI:
         def add_company():
             try:
                 # Search for company
-                url = f"{self.base_url}/search-company"
-                response = requests.post(url, json={"query": name_var.get()})
+                response = requests.get(f"{self.base_url}/search-company?query={name_var.get()}")
                 response.raise_for_status()
                 results = response.json()
                 
@@ -387,8 +382,7 @@ class StockGUI:
             
         try:
             # Refresh stock data
-            url = f"{self.base_url}/predict-stock"
-            response = requests.post(url, json={"symbol": self.current_symbol})
+            response = requests.get(f"{self.base_url}/predict-stock?symbol={self.current_symbol}")
             response.raise_for_status()
             result = response.json()
             
@@ -411,8 +405,7 @@ class StockGUI:
         if self.current_symbol:
             try:
                 # Fetch current price
-                url = f"{self.base_url}/predict-stock"
-                response = requests.post(url, json={"symbol": self.current_symbol})
+                response = requests.get(f"{self.base_url}/predict-stock?symbol={self.current_symbol}")
                 response.raise_for_status()
                 result = response.json()
                 
