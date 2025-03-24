@@ -35,30 +35,32 @@ class StockPredictor:
         """
         url = 'https://www.alphavantage.co/query'
         params = {
-            'function': 'TIME_SERIES_DAILY_ADJUSTED',
+            'function': 'TIME_SERIES_INTRADAY',
             'symbol': symbol,
             'apikey': self.api_key,
+            'interval': '5min',  # 5-minute intervals for real-time data
             'outputsize': 'full'
         }
         
         response = requests.get(url, params=params)
         data = response.json()
         
-        if 'Time Series (Daily)' not in data:
+        if 'Time Series (5min)' not in data:
             raise ValueError(f"No data found for symbol {symbol}")
             
-        df = pd.DataFrame(data['Time Series (Daily)']).T
+        df = pd.DataFrame(data['Time Series (5min)']).T
         df = df.rename(columns={
             '1. open': 'Open',
             '2. high': 'High',
             '3. low': 'Low',
             '4. close': 'Close',
-            '5. adjusted close': 'Adj Close',
-            '6. volume': 'Volume'
+            '5. volume': 'Volume'
         })
         
         df = df.astype(float)
         df.index = pd.to_datetime(df.index)
+        
+        # Sort by date to ensure chronological order
         df = df.sort_index()
         
         return df

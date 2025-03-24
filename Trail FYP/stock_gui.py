@@ -16,24 +16,118 @@ class StockGUI:
         # API configuration
         self.api_key = "ZTJL216JZCLZE26O"
         self.base_url = "http://127.0.0.1:8000"
+        self.current_symbol = None
         
         # Create main frames
         self.create_frames()
         self.create_widgets()
         
+        # Start periodic updates
+        self.update_data()
+        
     def create_frames(self):
+        # Create main container frame
+        container = ttk.Frame(self.root)
+        container.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        # Create sidebar frame
+        sidebar_frame = ttk.LabelFrame(container, text="Popular Companies", padding="10")
+        sidebar_frame.pack(side="left", fill="y", padx=5, pady=5)
+        
+        # Create company list frame
+        self.company_frame = ttk.Frame(sidebar_frame)
+        self.company_frame.pack(fill="y", expand=True)
+        
+        # Create main content frame
+        content_frame = ttk.Frame(container)
+        content_frame.pack(side="right", fill="both", expand=True)
+        
         # Search frame
-        self.search_frame = ttk.LabelFrame(self.root, text="Company Search", padding="10")
-        self.search_frame.pack(fill="x", padx=10, pady=5)
+        self.search_frame = ttk.LabelFrame(content_frame, text="Company Search", padding="10")
+        self.search_frame.pack(fill="x", padx=5, pady=5)
         
         # Results frame
-        self.results_frame = ttk.LabelFrame(self.root, text="Search Results", padding="10")
-        self.results_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        self.results_frame = ttk.LabelFrame(content_frame, text="Search Results", padding="10")
+        self.results_frame.pack(fill="both", expand=True, padx=5, pady=5)
         
         # Stock details frame
-        self.stock_frame = ttk.LabelFrame(self.root, text="Stock Details", padding="10")
-        self.stock_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        self.stock_frame = ttk.LabelFrame(content_frame, text="Stock Details", padding="10")
+        self.stock_frame.pack(fill="both", expand=True, padx=5, pady=5)
         
+        # Add popular companies
+        self.add_popular_companies()
+        
+    def add_popular_companies(self):
+        """
+        Add a list of popular companies to the sidebar
+        """
+        popular_companies = [
+            {"symbol": "AAPL", "name": "Apple Inc"},
+            {"symbol": "GOOGL", "name": "Alphabet Inc"},
+            {"symbol": "MSFT", "name": "Microsoft Corporation"},
+            {"symbol": "AMZN", "name": "Amazon.com, Inc."},
+            {"symbol": "META", "name": "Meta Platforms Inc"},
+            {"symbol": "TSLA", "name": "Tesla, Inc."},
+            {"symbol": "NVDA", "name": "NVIDIA Corporation"},
+            {"symbol": "JPM", "name": "JPMorgan Chase & Co."},
+            {"symbol": "JNJ", "name": "Johnson & Johnson"},
+            {"symbol": "V", "name": "Visa Inc"},
+            {"symbol": "DIS", "name": "The Walt Disney Company"},
+            {"symbol": "BABA", "name": "Alibaba Group Holding Limited"}
+        ]
+        
+        # Create a scrollable frame for the company list
+        canvas = tk.Canvas(self.company_frame)
+        scrollbar = ttk.Scrollbar(self.company_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Add company buttons
+        for company in popular_companies:
+            btn = ttk.Button(
+                scrollable_frame,
+                text=f"{company['symbol']} - {company['name']}",
+                command=lambda c=company: self.select_company(c)
+            )
+            btn.pack(fill="x", pady=2)
+            
+    def select_company(self, company):
+        """
+        Handle company selection from the sidebar
+        """
+        self.current_symbol = company['symbol']
+        
+        # Update company details
+        self.symbol_label.config(text=f"Symbol: {company['symbol']}")
+        self.name_label.config(text=f"Name: {company['name']}")
+        
+        # Fetch current price
+        try:
+            url = f"{self.base_url}/predict-stock"
+            response = requests.post(url, json={"symbol": company['symbol']})
+            response.raise_for_status()
+            result = response.json()
+            
+            self.price_label.config(text=f"Current Price: ${result['predicted_price']:.2f}")
+            
+            # Update chart
+            self.update_chart(company['symbol'])
+            
+        except requests.exceptions.HTTPError as http_err:
+            messagebox.showerror("Error", f"HTTP error occurred: {http_err}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to fetch stock details: {str(e)}")
+
     def create_widgets(self):
         # Search widgets
         self.search_var = tk.StringVar()
@@ -132,6 +226,7 @@ class StockGUI:
             
         item = self.results_tree.item(selected_item[0])
         symbol = item['values'][0]
+        self.current_symbol = symbol
         
         # Update company details
         self.symbol_label.config(text=f"Symbol: {symbol}")
@@ -220,6 +315,30 @@ class StockGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to update chart: {str(e)}")
 
+    def update_data(self):
+        """
+        Periodically update stock data every 5 minutes
+        """
+        if self.current_symbol:
+            try:
+                # Fetch current price
+                url = f"{self.base_url}/predict-stock"
+                response = requests.post(url, json={"symbol": self.current_symbol})
+                response.raise_for_status()
+                result = response.json()
+                
+                # Update price
+                self.price_label.config(text=f"Current Price: ${result['predicted_price']:.2f}")
+                
+                # Update chart
+                self.update_chart(self.current_symbol)
+                
+            except Exception as e:
+                print(f"Error updating data: {str(e)}")
+        
+        # Schedule next update
+        self.root.after(300000, self.update_data)  # 5 minutes in milliseconds
+        
 def main():
     root = tk.Tk()
     app = StockGUI(root)
