@@ -31,12 +31,16 @@ class StockGUI:
         container.pack(fill="both", expand=True, padx=10, pady=5)
         
         # Create sidebar frame
-        sidebar_frame = ttk.LabelFrame(container, text="Popular Companies", padding="10")
+        sidebar_frame = ttk.LabelFrame(container, text="Popular Companies & Actions", padding="10")
         sidebar_frame.pack(side="left", fill="y", padx=5, pady=5)
         
         # Create company list frame
         self.company_frame = ttk.Frame(sidebar_frame)
         self.company_frame.pack(fill="y", expand=True)
+        
+        # Create action buttons frame
+        action_frame = ttk.LabelFrame(sidebar_frame, text="Actions", padding="10")
+        action_frame.pack(fill="x", padx=5, pady=5)
         
         # Create main content frame
         content_frame = ttk.Frame(container)
@@ -56,6 +60,9 @@ class StockGUI:
         
         # Add popular companies
         self.add_popular_companies()
+        
+        # Add action buttons
+        self.add_action_buttons(action_frame)
         
     def add_popular_companies(self):
         """
@@ -101,6 +108,13 @@ class StockGUI:
             )
             btn.pack(fill="x", pady=2)
             
+    def add_action_buttons(self, frame):
+        """
+        Add action buttons to the sidebar
+        """
+        ttk.Button(frame, text="Add New Company", command=self.add_new_company).pack(fill="x", pady=2)
+        ttk.Button(frame, text="Refresh Data", command=self.refresh_data).pack(fill="x", pady=2)
+        
     def select_company(self, company):
         """
         Handle company selection from the sidebar
@@ -119,6 +133,7 @@ class StockGUI:
             result = response.json()
             
             self.price_label.config(text=f"Current Price: ${result['predicted_price']:.2f}")
+            self.trend_label.config(text=f"Trend: {result['trend_prediction']} ({result['confidence']:.2f}% confidence)")
             
             # Update chart
             self.update_chart(company['symbol'])
@@ -170,6 +185,9 @@ class StockGUI:
         
         self.price_label = ttk.Label(self.stock_frame, text="Current Price:")
         self.price_label.pack(anchor="w", padx=5, pady=2)
+        
+        self.trend_label = ttk.Label(self.stock_frame, text="Trend:")
+        self.trend_label.pack(anchor="w", padx=5, pady=2)
         
         self.predict_button = ttk.Button(self.stock_frame, text="Predict Price", command=self.predict_price)
         self.predict_button.pack(pady=10)
@@ -232,7 +250,7 @@ class StockGUI:
         self.symbol_label.config(text=f"Symbol: {symbol}")
         self.name_label.config(text=f"Name: {item['values'][1]}")
         
-        # Fetch current price
+        # Fetch current price and trend
         try:
             url = f"{self.base_url}/predict-stock"
             response = requests.post(url, json={"symbol": symbol})
@@ -240,12 +258,11 @@ class StockGUI:
             result = response.json()
             
             self.price_label.config(text=f"Current Price: ${result['predicted_price']:.2f}")
+            self.trend_label.config(text=f"Trend: {result['trend_prediction']} ({result['confidence']:.2f}% confidence)")
             
             # Update chart
             self.update_chart(symbol)
             
-        except requests.exceptions.HTTPError as http_err:
-            messagebox.showerror("Error", f"HTTP error occurred: {http_err}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to fetch stock details: {str(e)}")
 
@@ -315,6 +332,78 @@ class StockGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to update chart: {str(e)}")
 
+    def add_new_company(self):
+        """
+        Open a dialog to add a new company
+        """
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Add New Company")
+        dialog.geometry("400x200")
+        
+        # Company name
+        ttk.Label(dialog, text="Company Name:").pack(pady=5)
+        name_var = tk.StringVar()
+        ttk.Entry(dialog, textvariable=name_var).pack(fill="x", padx=5, pady=5)
+        
+        # Company symbol
+        ttk.Label(dialog, text="Stock Symbol:").pack(pady=5)
+        symbol_var = tk.StringVar()
+        ttk.Entry(dialog, textvariable=symbol_var).pack(fill="x", padx=5, pady=5)
+        
+        # Add button
+        def add_company():
+            try:
+                # Search for company
+                url = f"{self.base_url}/search-company"
+                response = requests.post(url, json={"query": name_var.get()})
+                response.raise_for_status()
+                results = response.json()
+                
+                if not results:
+                    messagebox.showerror("Error", "No company found matching the search")
+                    return
+                    
+                # Add company
+                company = results[0]  # Use the first matching company
+                add_url = f"{self.base_url}/add-company"
+                add_response = requests.post(add_url, json=company)
+                add_response.raise_for_status()
+                
+                messagebox.showinfo("Success", "Company added successfully!")
+                dialog.destroy()
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to add company: {str(e)}")
+        
+        ttk.Button(dialog, text="Add Company", command=add_company).pack(pady=10)
+        
+    def refresh_data(self):
+        """
+        Refresh all data for the current company
+        """
+        if not self.current_symbol:
+            messagebox.showwarning("Warning", "Please select a company first")
+            return
+            
+        try:
+            # Refresh stock data
+            url = f"{self.base_url}/predict-stock"
+            response = requests.post(url, json={"symbol": self.current_symbol})
+            response.raise_for_status()
+            result = response.json()
+            
+            # Update GUI
+            self.price_label.config(text=f"Current Price: ${result['predicted_price']:.2f}")
+            self.trend_label.config(text=f"Trend: {result['trend_prediction']} ({result['confidence']:.2f}% confidence)")
+            
+            # Update chart
+            self.update_chart(self.current_symbol)
+            
+            messagebox.showinfo("Success", "Data refreshed successfully!")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to refresh data: {str(e)}")
+            
     def update_data(self):
         """
         Periodically update stock data every 5 minutes
@@ -329,6 +418,7 @@ class StockGUI:
                 
                 # Update price
                 self.price_label.config(text=f"Current Price: ${result['predicted_price']:.2f}")
+                self.trend_label.config(text=f"Trend: {result['trend_prediction']} ({result['confidence']:.2f}% confidence)")
                 
                 # Update chart
                 self.update_chart(self.current_symbol)

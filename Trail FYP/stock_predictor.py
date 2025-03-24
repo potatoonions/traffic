@@ -14,10 +14,11 @@ load_dotenv()
 class ModelManager:
     def __init__(self, model_dir):
         self.model_dir = model_dir
-
+        os.makedirs(self.model_dir, exist_ok=True)
+        
     def save_model(self, model, filename):
         model.save(os.path.join(self.model_dir, filename))
-
+        
     def load_model(self, filename):
         return tf.keras.models.load_model(os.path.join(self.model_dir, filename))
 
@@ -28,7 +29,33 @@ class StockPredictor:
         self.look_back = 60  # Number of previous days to consider
         self.api_key = os.getenv('ALPHA_VANTAGE_API_KEY')
         self.model_manager = ModelManager(model_dir)
+        self.model_initialized = False
         
+    def create_model(self):
+        """Create LSTM model for stock prediction"""
+        self.model = Sequential([
+            LSTM(50, return_sequences=True, input_shape=(self.look_back, 1)),
+            LSTM(50),
+            Dense(1)
+        ])
+        
+        self.model.compile(optimizer='adam', loss='mean_squared_error')
+        self.model_initialized = True
+        
+    def load_model(self, symbol: str):
+        """Load a pre-trained model for a specific symbol"""
+        try:
+            self.model = self.model_manager.load_model(f"{symbol}_model.h5")
+            self.model_initialized = True
+        except:
+            self.create_model()
+            self.model_initialized = True
+            
+    def save_model(self, symbol: str):
+        """Save the trained model"""
+        if self.model_initialized:
+            self.model_manager.save_model(self.model, f"{symbol}_model.h5")
+            
     def load_data(self, symbol: str):
         """
         Load stock data from Alpha Vantage API
@@ -38,7 +65,7 @@ class StockPredictor:
             'function': 'TIME_SERIES_INTRADAY',
             'symbol': symbol,
             'apikey': self.api_key,
-            'interval': '5min',  # 5-minute intervals for real-time data
+            'interval': '5min',
             'outputsize': 'full'
         }
         
@@ -59,23 +86,10 @@ class StockPredictor:
         
         df = df.astype(float)
         df.index = pd.to_datetime(df.index)
-        
-        # Sort by date to ensure chronological order
         df = df.sort_index()
         
         return df
-    
-    def create_model(self):
-        """
-        Create LSTM model for stock prediction
-        """
-        self.model = Sequential()
-        self.model.add(LSTM(units=50, return_sequences=True, input_shape=(self.look_back, 1)))
-        self.model.add(LSTM(units=50))
-        self.model.add(Dense(1))
         
-        self.model.compile(optimizer='adam', loss='mean_squared_error')
-    
     def prepare_data(self, df: pd.DataFrame):
         """
         Prepare data for LSTM model
@@ -92,45 +106,69 @@ class StockPredictor:
         x = np.reshape(x, (x.shape[0], x.shape[1], 1))
         
         return x, y
-    
+        
     def train_model(self, df: pd.DataFrame, epochs: int = 50, batch_size: int = 32, validation_split: float = 0.2):
         """
         Train the LSTM model
         """
+        if not self.model_initialized:
+            self.create_model()
+            
         x, y = self.prepare_data(df)
         self.model.fit(x, y, epochs=epochs, batch_size=batch_size, validation_split=validation_split)
-    
-    def predict(self, symbol: str, days_to_predict: int = 1):
+        
+    def predict(self, symbol: str, date: str = None):
         """
-        Make stock price predictions
+        Predict stock price for a given symbol
+        
+        Args:
+            symbol: Stock symbol to predict
+            date: Optional date for prediction (default: today)
+            
+        Returns:
+            Dictionary containing prediction information
         """
-        df = self.load_data(symbol)
-        
-        # Get the last 60 days of data
-        last_60_days = df['Close'].tail(self.look_back).values.reshape(-1, 1)
-        last_60_days_scaled = self.scaler.transform(last_60_days)
-        
-        # Create input for prediction
-        x_test = []
-        x_test.append(last_60_days_scaled)
-        x_test = np.array(x_test)
-        x_test = np.reshape(x_test, (x_test.shape[0], x_test.shape[1], 1))
-        
-        # Make prediction
-        predicted_price = self.model.predict(x_test)
-        predicted_price = self.scaler.inverse_transform(predicted_price)
-        
-        return {
-            'symbol': symbol,
-            'predicted_price': float(predicted_price[0][0]),
-            'current_price': float(df['Close'].iloc[-1]),
-            'prediction_date': (datetime.now() + timedelta(days=days_to_predict)).strftime('%Y-%m-%d')
-        }
+        try:
+            # Load data
+            df = self.load_data(symbol)
+            
+            # Load or create model
+            self.load_model(symbol)
+            
+            # Get the latest data point
+            latest_data = df['Close'].values[-self.look_back:].reshape(-1, 1)
+            
+            # Scale the data
+            scaled_data = self.scaler.fit_transform(latest_data)
+            
+            # Prepare input for prediction
+            x_input = scaled_data.reshape(1, self.look_back, 1)
+            
+            # Make prediction
+            predicted_price_scaled = self.model.predict(x_input)
+            predicted_price = self.scaler.inverse_transform(predicted_price_scaled)[0][0]
+            
+            # Get prediction date
+            if date is None:
+                prediction_date = (pd.to_datetime(df.index[-1]) + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                prediction_date = date
+            
+            return {
+                "predicted_price": float(predicted_price),
+                "prediction_date": prediction_date
+            }
+            
+        except Exception as e:
+            raise ValueError(f"Error predicting stock price: {str(e)}")
 
     def evaluate_model(self, df: pd.DataFrame):
         """
         Evaluate the performance of the LSTM model
         """
+        if not self.model_initialized:
+            self.create_model()
+            
         x, y = self.prepare_data(df)
         loss = self.model.evaluate(x, y)
         return loss
@@ -139,7 +177,8 @@ class StockPredictor:
         """
         Save the trained LSTM model
         """
-        self.model_manager.save_model(self.model, filename)
+        if self.model_initialized:
+            self.model_manager.save_model(self.model, filename)
 
     def load_model(self, filename: str):
         """
