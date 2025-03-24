@@ -62,6 +62,11 @@ class StockGUI:
         # Bind double-click event
         self.results_tree.bind("<<TreeviewSelect>>", self.on_company_select)
         
+        # Loading indicator
+        self.loading_label = ttk.Label(self.results_frame, text="Searching...")
+        self.loading_label.pack(pady=5)
+        self.loading_label.pack_forget()  # Hide initially
+        
         # Stock details widgets
         self.symbol_label = ttk.Label(self.stock_frame, text="Symbol:")
         self.symbol_label.pack(anchor="w", padx=5, pady=2)
@@ -85,10 +90,15 @@ class StockGUI:
         if not query:
             messagebox.showwarning("Warning", "Please enter a search term")
             return
+            
+        # Show loading indicator
+        self.loading_label.pack(pady=5)
+        self.root.update_idletasks()
         
         try:
             url = f"{self.base_url}/search-company?query={query}"
             response = requests.get(url)
+            response.raise_for_status()  # Raise an exception for HTTP errors
             results = response.json()
             
             # Clear existing items
@@ -96,23 +106,30 @@ class StockGUI:
                 self.results_tree.delete(item)
             
             # Insert new items
-            for company in results:
-                self.results_tree.insert("", "end", values=(
-                    company['symbol'],
-                    company['name'],
-                    company['type'],
-                    company['region'],
-                    company['matchScore']
-                ))
+            if results:
+                for company in results:
+                    self.results_tree.insert("", "end", values=(
+                        company['symbol'],
+                        company['name'],
+                        company['type'],
+                        company['region'],
+                        company['matchScore']
+                    ))
+            else:
+                messagebox.showinfo("No Results", "No companies found matching your search")
             
+        except requests.exceptions.HTTPError as http_err:
+            messagebox.showerror("Error", f"HTTP error occurred: {http_err}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to search companies: {str(e)}")
-        
+        finally:
+            self.loading_label.pack_forget()  # Hide loading indicator
+            
     def on_company_select(self, event):
         selected_item = self.results_tree.selection()
         if not selected_item:
             return
-        
+            
         item = self.results_tree.item(selected_item[0])
         symbol = item['values'][0]
         
@@ -124,15 +141,19 @@ class StockGUI:
         try:
             url = f"{self.base_url}/predict-stock"
             response = requests.post(url, json={"symbol": symbol})
+            response.raise_for_status()
             result = response.json()
+            
             self.price_label.config(text=f"Current Price: ${result['predicted_price']:.2f}")
             
             # Update chart
             self.update_chart(symbol)
             
+        except requests.exceptions.HTTPError as http_err:
+            messagebox.showerror("Error", f"HTTP error occurred: {http_err}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to fetch stock details: {str(e)}")
-        
+
     def predict_price(self):
         selected_item = self.results_tree.selection()
         if not selected_item:
@@ -145,6 +166,7 @@ class StockGUI:
         try:
             url = f"{self.base_url}/predict-stock"
             response = requests.post(url, json={"symbol": symbol})
+            response.raise_for_status()
             result = response.json()
             
             messagebox.showinfo("Prediction", 
@@ -155,6 +177,8 @@ class StockGUI:
             # Update chart
             self.update_chart(symbol)
             
+        except requests.exceptions.HTTPError as http_err:
+            messagebox.showerror("Error", f"HTTP error occurred: {http_err}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to predict price: {str(e)}")
             
@@ -163,6 +187,7 @@ class StockGUI:
             # Fetch historical data
             url = f"{self.base_url}/predict-stock"
             response = requests.post(url, json={"symbol": symbol})
+            response.raise_for_status()
             result = response.json()
             
             # Clear previous plot
@@ -190,6 +215,8 @@ class StockGUI:
             # Update canvas
             self.canvas.draw()
             
+        except requests.exceptions.HTTPError as http_err:
+            messagebox.showerror("Error", f"HTTP error occurred: {http_err}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to update chart: {str(e)}")
 

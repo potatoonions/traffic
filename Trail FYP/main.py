@@ -147,6 +147,8 @@ def search_company(query: str):
         }
         
         response = requests.get(url, params=params)
+        response.raise_for_status()  # Raise an exception for HTTP errors
+        
         data = response.json()
         
         if 'bestMatches' not in data:
@@ -164,6 +166,8 @@ def search_company(query: str):
             
         return results
         
+    except requests.exceptions.HTTPError as http_err:
+        raise HTTPException(status_code=500, detail=f"HTTP error occurred: {http_err}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
