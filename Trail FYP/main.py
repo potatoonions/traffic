@@ -4,17 +4,20 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel
 from dotenv import load_dotenv
+import os
+import requests
 
-from traffic_predictor import TrafficPredictor
-from route_optimizer import RouteOptimizer
+from stock_predictor import StockPredictor
+from stock_trainer import StockTrainer
+from model_manager import ModelManager
 
 # Load environment variables
 load_dotenv()
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Smart Route Optimization System",
-    description="AI-powered traffic prediction and route optimization system",
+    title="Stock Market Prediction System",
+    description="AI-powered stock market prediction system",
     version="1.0.0"
 )
 
@@ -28,73 +31,139 @@ app.add_middleware(
 )
 
 # Initialize components
-traffic_predictor = TrafficPredictor()
-route_optimizer = RouteOptimizer(traffic_predictor)
+stock_predictor = StockPredictor("models")
+stock_trainer = StockTrainer()
+model_manager = ModelManager("models")
 
-class RouteRequest(BaseModel):
-    origin: str
-    destination: str
-    departure_time: Optional[datetime] = None
+class StockRequest(BaseModel):
+    symbol: str
+    date: Optional[datetime] = None
 
 @app.get("/")
 def read_root():
     """Health check endpoint"""
     return {
         "status": "online",
-        "service": "Smart Route Optimization System",
+        "service": "Stock Market Prediction System",
         "version": "1.0.0"
     }
 
-@app.post("/optimize-route")
-def optimize_route(route_request: RouteRequest):
+@app.post("/predict-stock")
+def predict_stock(stock_request: StockRequest):
     """
-    Get the optimal route between two points
+    Get the predicted stock price for a specific symbol and date
     
     Args:
-        route_request: RouteRequest object containing origin and destination
+        stock_request: StockRequest object containing symbol and date
         
     Returns:
-        Optimized route information including traffic predictions
+        Predicted stock price information with historical data
     """
     try:
-        return route_optimizer.get_optimal_route(
-            route_request.origin,
-            route_request.destination,
-            route_request.departure_time
+        # Load historical data
+        df = stock_predictor.load_data(stock_request.symbol)
+        
+        # Get last 30 days of data for visualization
+        last_30_days = df.tail(30)
+        
+        # Predict price
+        result = stock_predictor.predict(
+            stock_request.symbol,
+            stock_request.date
         )
+        
+        # Prepare response with historical data
+        return {
+            "symbol": stock_request.symbol,
+            "predicted_price": result["predicted_price"],
+            "prediction_date": result["prediction_date"],
+            "historical_dates": last_30_days.index.strftime("%Y-%m-%d").tolist(),
+            "historical_prices": last_30_days["Close"].tolist()
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/traffic-prediction")
-def get_traffic_prediction(latitude: float, longitude: float, time: Optional[datetime] = None):
+@app.post("/train-model")
+def train_model(symbol: str, epochs: int = 50):
     """
-    Get traffic prediction for a specific location and time
+    Train a new model for a specific stock symbol
     
     Args:
-        latitude: Location latitude
-        longitude: Location longitude
-        time: Optional prediction time (defaults to current time)
+        symbol: Stock symbol to train
+        epochs: Number of training epochs (default: 50)
         
     Returns:
-        Traffic prediction score
+        Training status and model details
     """
     try:
-        if time is None:
-            time = datetime.now()
-            
-        features = [
-            time.hour,
-            time.weekday(),
-            latitude,
-            longitude
-        ]
+        result = stock_trainer.train_model(symbol, epochs)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/load-model")
+def load_model():
+    """
+    Load the stock prediction model
+    
+    Returns:
+        Loaded model information
+    """
+    try:
+        return model_manager.load_model()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/save-model")
+def save_model():
+    """
+    Save the stock prediction model
+    
+    Returns:
+        Saved model information
+    """
+    try:
+        return model_manager.save_model()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/search-company")
+def search_company(query: str):
+    """
+    Search for company information using a search query
+    
+    Args:
+        query: Search term to look for company names or symbols
         
-        prediction = traffic_predictor.predict_traffic(features)
-        return {
-            "location": {"lat": latitude, "lng": longitude},
-            "time": time.isoformat(),
-            "traffic_prediction": float(prediction)
+    Returns:
+        List of matching companies with their symbols and names
+    """
+    try:
+        url = 'https://www.alphavantage.co/query'
+        params = {
+            'function': 'SYMBOL_SEARCH',
+            'keywords': query,
+            'apikey': os.getenv('ALPHA_VANTAGE_API_KEY')
         }
+        
+        response = requests.get(url, params=params)
+        data = response.json()
+        
+        if 'bestMatches' not in data:
+            return []
+            
+        results = []
+        for match in data['bestMatches']:
+            results.append({
+                'symbol': match['1. symbol'],
+                'name': match['2. name'],
+                'type': match['3. type'],
+                'region': match['4. region'],
+                'matchScore': match['9. matchScore']
+            })
+            
+        return results
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
